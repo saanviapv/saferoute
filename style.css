@@ -1,0 +1,171 @@
+/* SAFEWAY — Smart Road Safety & Risk Intelligence Platform Styles */
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #060911;
+}
+::-webkit-scrollbar-thumb {
+  background: #162038;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #263760;
+}
+
+/* Leaflet Container & Dark Mode Filter */
+.leaflet-container {
+  background: #060911 !important;
+  font-family: inherit;
+}
+
+/* Dark mode styling for OSM tiles */
+.dark-tiles .leaflet-tile {
+  filter: brightness(0.62) invert(1) contrast(3.0) hue-rotate(200deg) saturate(0.28) brightness(0.72);
+}
+
+/* Standard OSM tiles when user toggles standard view */
+.standard-tiles .leaflet-tile {
+  filter: none !important;
+}
+
+/* Leaflet Popup Styling */
+.leaflet-popup-content-wrapper {
+  background: #0b1120 !important;
+  color: #f8fafc !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  border-radius: 18px !important;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.7), 0 10px 10px -5px rgba(0, 0, 0, 0.04) !important;
+  padding: 4px !important;
+}
+
+.leaflet-popup-tip {
+  background: #0b1120 !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+}
+
+.leaflet-popup-content {
+  margin: 12px 14px !important;
+  line-height: 1.4 !important;
+}
+
+/* Custom Marker Styling */
+.hazard-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 15px;
+  box-shadow: 0 0 14px rgba(0, 0, 0, 0.7);
+  position: relative;
+  transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  cursor: pointer;
+}
+
+.hazard-pin:hover {
+  transform: scale(1.25);
+  z-index: 1000 !important;
+}
+
+/* 4-Level Risk Colors */
+.hazard-pin.low {
+  background: radial-gradient(circle, #10b981 0%, #047857 100%);
+  border: 2px solid #a7f3d0;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.6);
+}
+
+.hazard-pin.moderate {
+  background: radial-gradient(circle, #eab308 0%, #a16207 100%);
+  border: 2px solid #fef08a;
+  box-shadow: 0 0 12px rgba(234, 179, 8, 0.6);
+}
+
+.hazard-pin.high {
+  background: radial-gradient(circle, #f97316 0%, #c2410c 100%);
+  border: 2px solid #fed7aa;
+  box-shadow: 0 0 14px rgba(249, 115, 22, 0.7);
+}
+
+.hazard-pin.critical {
+  background: radial-gradient(circle, #ef4444 0%, #b91c1c 100%);
+  border: 2px solid #fecaca;
+  box-shadow: 0 0 18px rgba(239, 68, 68, 0.8);
+}
+
+.hazard-pin.critical::after {
+  content: '';
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 2px solid #ef4444;
+  animation: pulseCritical 1.8s infinite;
+}
+
+@keyframes pulseCritical {
+  0% { transform: scale(1); opacity: 0.9; }
+  100% { transform: scale(2.3); opacity: 0; }
+}
+
+/* User Location Pin */
+.user-pin {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #10b981;
+  border: 3px solid #ffffff;
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.9);
+  position: relative;
+}
+
+.user-pin::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  background: rgba(16, 185, 129, 0.25);
+  animation: pulseUser 2s infinite ease-out;
+}
+
+@keyframes pulseUser {
+  0% { transform: scale(0.8); opacity: 1; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+/* Route Option Card Active State */
+.route-option-card.selected {
+  border-color: #10b981 !important;
+  background: rgba(16, 185, 129, 0.08) !important;
+}
+
+/* AI Scan Scanner Animation */
+@keyframes scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+.ai-scan-line {
+  position: absolute;
+  inset-x: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, #10b981, transparent);
+  box-shadow: 0 0 15px #10b981;
+  animation: scanline 2.5s ease-in-out infinite;
+}
+
+/* Radar Sweep Needle */
+@keyframes radarSweep {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Telemetry typography */
+.font-mono {
+  font-feature-settings: "zero" 1;
+}
