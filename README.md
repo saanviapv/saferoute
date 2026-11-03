@@ -1,2 +1,2 @@
 # saferoute
-ai powered smart road safety and risk analysis
+AI-powered Smart Road Safety and Risk Analysis
