@@ -1,11 +1,26 @@
 /**
  * SAFEWAY — Smart Road Safety & Risk Intelligence Platform
  * Master Application Architecture & Systems Engine
+ *
+ * Location Engine:
+ * - Default Location: Chennai, Tamil Nadu (13.0827, 80.2707)
+ * - Browser Geolocation API (navigator.geolocation.getCurrentPosition)
+ * - Live City Search via OpenStreetMap Nominatim Geocoding
+ * - Dynamic Anchor of Routes, Hazards, Heatmaps & Proximity Radar to Active Location
  */
+
+// Default Fallback Coordinates (Chennai, Tamil Nadu - Requirement 4)
+const DEFAULT_LOCATION = {
+  lat: 13.0827,
+  lng: 80.2707,
+  name: "Chennai, Tamil Nadu"
+};
 
 // Global App State
 const APP_STATE = {
-  userLocation: { lat: 28.6139, lng: 77.2090, name: "City Center Central Metro" },
+  userLocation: { ...DEFAULT_LOCATION },
+  isDefaultLocation: true,
+  locationPermissionStatus: "pending", // 'granted' | 'denied' | 'default'
   activeRoute: "safest", // 'safest' | 'shortest' | 'alternate'
   mapViewMode: "safety", // 'safety' | 'standard' | 'heatmap'
   heatmapMode: "overall", // 'overall' | 'accident' | 'waterlog' | 'damage'
@@ -22,380 +37,17 @@ let proximityCircle = null;
 let activePolylines = [];
 let hazardLayerGroup = null;
 
+// Dynamic Route & Hazard Data State
+let ROUTES_DATA = {};
+let hazardsData = [];
+
 // Chart.js instances
 let chartRisk = null;
 let chartCategory = null;
 let chartTrends = null;
 let chartWeather = null;
 
-// Initial Comprehensive Hazard Database (Simulating Supabase Cloud Storage)
-const INITIAL_HAZARDS = [
-  {
-    id: "RPT-2026-8941",
-    title: "Deep Pothole Cluster & Severe Rupture",
-    category: "pothole",
-    severity: "critical", // low | moderate | high | critical
-    riskScore: 88,
-    lat: 28.6210,
-    lng: 77.2145,
-    location: "Barakhamba Road, Lane 2, near Metro Exit 3",
-    description: "Multiple sharp rim-bending craters ~12cm deep. Vehicles swerving violently into opposite lane.",
-    reportedTime: "24 mins ago",
-    confirmations: 38,
-    disputes: 1,
-    credibility: 96,
-    status: "verified", // 'pending' | 'verified' | 'resolved' | 'rejected'
-    photoUrl: "https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?w=600&auto=format&fit=crop&q=80",
-    aiVerified: true,
-    aiConfidence: 94
-  },
-  {
-    id: "RPT-2026-8942",
-    title: "Submerged Rail Underpass Waterlogging",
-    category: "waterlog",
-    severity: "critical",
-    riskScore: 94,
-    lat: 28.6080,
-    lng: 77.2030,
-    location: "Minto Bridge Rail Underpass Corridor",
-    description: "Water accumulation depth 2.6 ft. Two hatchbacks stalled with hydrolocked engines.",
-    reportedTime: "12 mins ago",
-    confirmations: 52,
-    disputes: 0,
-    credibility: 99,
-    status: "verified",
-    photoUrl: "https://images.unsplash.com/photo-1547683905-f686c993aae5?w=600&auto=format&fit=crop&q=80",
-    aiVerified: true,
-    aiConfidence: 97
-  },
-  {
-    id: "RPT-2026-8943",
-    title: "Zero Sightline Blind Turn Collision Spot",
-    category: "blindturn",
-    severity: "high",
-    riskScore: 68,
-    lat: 28.6295,
-    lng: 77.2210,
-    location: "Tilak Marg & Bhagwan Das Rd Intersection",
-    description: "Sharp corner with overgrown trees blocking sightline and absent convex mirror. 4 collisions logged this month.",
-    reportedTime: "1 hour ago",
-    confirmations: 19,
-    disputes: 2,
-    credibility: 88,
-    status: "verified",
-    photoUrl: "",
-    aiVerified: false,
-    aiConfidence: 0
-  },
-  {
-    id: "RPT-2026-8944",
-    title: "Fallen Tree & Obstructed Carriageway",
-    category: "tree",
-    severity: "high",
-    riskScore: 62,
-    lat: 28.6190,
-    lng: 77.1980,
-    location: "Ashoka Road near Traffic Circle",
-    description: "Large bough snapped in storm; partially blocking the central lane without warning cones.",
-    reportedTime: "2 hours ago",
-    confirmations: 14,
-    disputes: 1,
-    credibility: 91,
-    status: "verified",
-    photoUrl: "https://images.unsplash.com/photo-1508873696983-2df5293cb395?w=600&auto=format&fit=crop&q=80",
-    aiVerified: true,
-    aiConfidence: 91
-  },
-  {
-    id: "RPT-2026-8945",
-    title: "High-Frequency Speed Accident Blackspot",
-    category: "accident",
-    severity: "critical",
-    riskScore: 84,
-    lat: 28.6020,
-    lng: 77.2250,
-    location: "Mathura Road Outer Expressway Curve",
-    description: "Dangerous camber tilt with wet-surface skid hazard. Fatal accidents recorded at night.",
-    reportedTime: "5 hours ago",
-    confirmations: 44,
-    disputes: 0,
-    credibility: 98,
-    status: "verified",
-    photoUrl: "",
-    aiVerified: false,
-    aiConfidence: 0
-  },
-  {
-    id: "RPT-2026-8946",
-    title: "Broken Streetlight Corridor (Pitch Dark)",
-    category: "lighting",
-    severity: "moderate",
-    riskScore: 42,
-    lat: 28.6280,
-    lng: 77.2020,
-    location: "Panchkuian Marg Link North",
-    description: "5 consecutive light poles out of commission. Pedestrians crossing without reflective visibility.",
-    reportedTime: "6 hours ago",
-    confirmations: 8,
-    disputes: 0,
-    credibility: 85,
-    status: "pending",
-    photoUrl: "",
-    aiVerified: false,
-    aiConfidence: 0
-  },
-  {
-    id: "RPT-2026-8947",
-    title: "Unmarked Road Construction Trench",
-    category: "construction",
-    severity: "high",
-    riskScore: 65,
-    lat: 28.6150,
-    lng: 77.2290,
-    location: "Purana Qila Road Service Lane",
-    description: "Open trench for fiber optic laying. Missing reflective caution tape.",
-    reportedTime: "8 hours ago",
-    confirmations: 12,
-    disputes: 1,
-    credibility: 89,
-    status: "pending",
-    photoUrl: "",
-    aiVerified: false,
-    aiConfidence: 0
-  },
-  {
-    id: "RPT-2026-8948",
-    title: "Cleared Gravel Spill — Resolved",
-    category: "pothole",
-    severity: "low",
-    riskScore: 15,
-    lat: 28.6230,
-    lng: 77.2070,
-    location: "Janpath North Carriageway",
-    description: "Gravel and stone chips sweep completed by municipal authority.",
-    reportedTime: "12 hours ago",
-    confirmations: 22,
-    disputes: 0,
-    credibility: 99,
-    status: "resolved",
-    photoUrl: "",
-    aiVerified: false,
-    aiConfidence: 0
-  }
-];
-
-let hazardsData = [];
-
-// Route Definitions (Multiple Routes with Segment Risk Color Coding)
-const ROUTES_DATA = {
-  safest: {
-    id: "safest",
-    title: "Outer Bypass Highway (Via Ring West)",
-    badge: "RECOMMENDED: SAFEST ROUTE",
-    distance: "14.6 km",
-    duration: "24 mins",
-    overallRisk: 18,
-    riskCategory: "Low Risk",
-    summary: "Multi-lane arterial highway with modern drainage, bright LED lighting, and zero flood underpasses.",
-    segments: [
-      {
-        name: "Central Station to Ring Junction",
-        riskScore: 14,
-        category: "low",
-        color: "#10b981", // Green
-        hazards: "None identified",
-        weather: "Light Drizzle (4 mm/h)",
-        reports: "2 Verified Clear",
-        lastUpdated: "8 mins ago",
-        coords: [
-          [28.6139, 77.2090],
-          [28.6180, 77.2040],
-          [28.6230, 77.1990]
-        ]
-      },
-      {
-        name: "Ring West Expressway North Corridor",
-        riskScore: 22,
-        category: "low",
-        color: "#10b981", // Green
-        hazards: "Minor asphalt roughness",
-        weather: "Moderate Rain (10 mm/h)",
-        reports: "1 Community Report",
-        lastUpdated: "18 mins ago",
-        coords: [
-          [28.6230, 77.1990],
-          [28.6290, 77.1940],
-          [28.6360, 77.1900],
-          [28.6420, 77.1950]
-        ]
-      },
-      {
-        name: "Airport Link Elevated Flyover",
-        riskScore: 19,
-        category: "low",
-        color: "#10b981", // Green
-        hazards: "None; high elevation",
-        weather: "Heavy Rain (28 mm/h) — Rapid Runoff",
-        reports: "Zero incident alerts",
-        lastUpdated: "5 mins ago",
-        coords: [
-          [28.6420, 77.1950],
-          [28.6480, 77.2050],
-          [28.6520, 77.2150]
-        ]
-      }
-    ]
-  },
-  shortest: {
-    id: "shortest",
-    title: "Central Underpass & Old City Corridor",
-    badge: "SHORTEST BUT CRITICAL RISK",
-    distance: "10.2 km",
-    duration: "19 mins",
-    overallRisk: 82,
-    riskCategory: "Critical Risk",
-    summary: "Saves 5 minutes, but contains severe 2.6 ft waterlogging at Minto Underpass, 3 sharp blind turns, and 8 deep craters.",
-    segments: [
-      {
-        name: "Inner Circle to Barakhamba Intersection",
-        riskScore: 68,
-        category: "high",
-        color: "#f97316", // Orange
-        hazards: "Deep Pothole Cluster (~12cm)",
-        weather: "Heavy Rain (32 mm/h)",
-        reports: "38 Verified Driver Reports",
-        lastUpdated: "24 mins ago",
-        coords: [
-          [28.6139, 77.2090],
-          [28.6160, 77.2120],
-          [28.6210, 77.2145]
-        ]
-      },
-      {
-        name: "Minto Rail Underpass Basin",
-        riskScore: 94,
-        category: "critical",
-        color: "#ef4444", // Red (Critical)
-        hazards: "Submerged Roadway (2.6 ft depth) • Stalled Sedans",
-        weather: "Flash Flooding Threat",
-        reports: "52 Verified Driver Reports",
-        lastUpdated: "12 mins ago",
-        coords: [
-          [28.6210, 77.2145],
-          [28.6150, 77.2080],
-          [28.6080, 77.2030]
-        ]
-      },
-      {
-        name: "Old City Cross-Cutting Link",
-        riskScore: 78,
-        category: "critical",
-        color: "#ef4444", // Red
-        hazards: "Unsafe Junction • Waterlogging",
-        weather: "Heavy Rain (35 mm/h)",
-        reports: "19 Verified Reports",
-        lastUpdated: "40 mins ago",
-        coords: [
-          [28.6080, 77.2030],
-          [28.6020, 77.2100],
-          [28.6520, 77.2150]
-        ]
-      }
-    ]
-  },
-  alternate: {
-    id: "alternate",
-    title: "River Boulevard & East Link",
-    badge: "ALTERNATIVE SCENIC BYPASS",
-    distance: "16.1 km",
-    duration: "28 mins",
-    overallRisk: 48,
-    riskCategory: "High Risk",
-    summary: "Active road construction ongoing; narrow lanes and low street lighting past 7:00 PM.",
-    segments: [
-      {
-        name: "East River Embankment Way",
-        riskScore: 42,
-        category: "moderate",
-        color: "#eab308", // Yellow
-        hazards: "Slippery wet asphalt",
-        weather: "Moderate Rain (12 mm/h)",
-        reports: "6 Verified Reports",
-        lastUpdated: "1 hour ago",
-        coords: [
-          [28.6139, 77.2090],
-          [28.6110, 77.2180],
-          [28.6150, 77.2290]
-        ]
-      },
-      {
-        name: "Purana Qila Service Corridor",
-        riskScore: 65,
-        category: "high",
-        color: "#f97316", // Orange
-        hazards: "Unmarked Trench • Low Lighting",
-        weather: "Heavy Rain (25 mm/h)",
-        reports: "12 Verified Reports",
-        lastUpdated: "8 hours ago",
-        coords: [
-          [28.6150, 77.2290],
-          [28.6250, 77.2350],
-          [28.6380, 77.2300]
-        ]
-      },
-      {
-        name: "Northeast Expressway Connector",
-        riskScore: 36,
-        category: "moderate",
-        color: "#eab308", // Yellow
-        hazards: "Moderate Traffic Congestion",
-        weather: "Overcast",
-        reports: "4 Community Reports",
-        lastUpdated: "45 mins ago",
-        coords: [
-          [28.6380, 77.2300],
-          [28.6450, 77.2220],
-          [28.6520, 77.2150]
-        ]
-      }
-    ]
-  }
-};
-
-// Heatmap Data Points (lat, lng, intensity)
-const HEAT_DATASETS = {
-  overall: [
-    [28.6210, 77.2145, 0.95],
-    [28.6080, 77.2030, 1.0],
-    [28.6295, 77.2210, 0.75],
-    [28.6190, 77.1980, 0.65],
-    [28.6020, 77.2250, 0.9],
-    [28.6280, 77.2020, 0.45],
-    [28.6150, 77.2290, 0.7],
-    [28.6110, 77.2180, 0.5],
-    [28.6250, 77.2350, 0.6]
-  ],
-  accident: [
-    [28.6020, 77.2250, 1.0], // Blackspot
-    [28.6295, 77.2210, 0.85],
-    [28.6160, 77.2120, 0.6],
-    [28.6360, 77.2280, 0.5]
-  ],
-  waterlog: [
-    [28.6080, 77.2030, 1.0], // Underpass
-    [28.6150, 77.2080, 0.8],
-    [28.6110, 77.2050, 0.75],
-    [28.6020, 77.2100, 0.7]
-  ],
-  damage: [
-    [28.6210, 77.2145, 0.95], // Potholes
-    [28.6190, 77.1980, 0.7],
-    [28.6150, 77.2290, 0.75],
-    [28.6280, 77.2020, 0.5]
-  ]
-};
-
-// 10-Slide Deck Data (Original Presentation content fully preserved)
+// Presentation 10-Slide Deck Data (Original content preserved)
 const SLIDES = [
   {
     slideNumber: 1,
@@ -612,27 +264,27 @@ document.addEventListener("DOMContentLoaded", () => {
   initSafewayRouteMap();
   initDangerHeatMap();
   initChartsDashboard();
-  renderCommunityCards();
   initEventListeners();
   lucide.createIcons();
+
+  // Trigger Browser Geolocation on launch (Requirement 2, 3, 4)
+  requestUserGeolocation(false);
 });
 
 /**
- * LocalStorage & Hydration
+ * LocalStorage & Data Initializer
  */
 function initStorage() {
-  const saved = localStorage.getItem("safeway_hazards");
-  if (saved) {
+  const savedCity = localStorage.getItem("safeway_last_city");
+  if (savedCity) {
     try {
-      hazardsData = JSON.parse(saved);
-    } catch (e) {
-      hazardsData = [...INITIAL_HAZARDS];
-    }
-  } else {
-    hazardsData = [...INITIAL_HAZARDS];
-    localStorage.setItem("safeway_hazards", JSON.stringify(hazardsData));
+      const parsed = JSON.parse(savedCity);
+      if (parsed.lat && parsed.lng && parsed.name) {
+        APP_STATE.userLocation = parsed;
+        APP_STATE.isDefaultLocation = false;
+      }
+    } catch (e) {}
   }
-  updateKPICounters();
 }
 
 /**
@@ -642,6 +294,7 @@ function initSafewayRouteMap() {
   const mapEl = document.getElementById("safewayMap");
   if (!mapEl) return;
 
+  // Initialize centered on current state location (Default: Chennai 13.0827, 80.2707)
   safewayMap = L.map("safewayMap", {
     center: [APP_STATE.userLocation.lat, APP_STATE.userLocation.lng],
     zoom: 14,
@@ -650,31 +303,407 @@ function initSafewayRouteMap() {
 
   L.control.zoom({ position: "topright" }).addTo(safewayMap);
 
-  // Add dark tile layer by default
-  const tileLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  // Add OpenStreetMap tile layer (HTTPS for GitHub Pages compatibility)
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
-    attribution: '&copy; OpenStreetMap contributors'
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
   }).addTo(safewayMap);
 
-  // Apply dark tile class
   safewayMap.getContainer().classList.add("dark-tiles");
-
   hazardLayerGroup = L.layerGroup().addTo(safewayMap);
 
-  // User Marker with 2km Proximity Radar
-  renderUserAndRadar();
-
-  // Render Hazard Pins
-  renderHazardPinsOnMap();
-
-  // Draw Default Safest Route
-  renderSelectedRoute("safest");
+  // Synchronize dynamic location-based data (Chennai default)
+  refreshLocationData(APP_STATE.userLocation.lat, APP_STATE.userLocation.lng, APP_STATE.userLocation.name);
 }
 
 /**
- * Render User Pin & 2km Radar Circle
+ * MODULE 2: Dynamic Hazard Generator for Any Selected City/Location
+ * Places hazards around the active center coordinates rather than Delhi.
+ */
+function generateHazardsForLocation(centerLat, centerLng, cityName) {
+  const cleanCity = cityName ? cityName.split(',')[0].trim() : "Local";
+  const isChennai = cleanCity.toLowerCase().includes("chennai");
+
+  const templates = [
+    {
+      id: "RPT-2026-101",
+      title: "Deep Pothole Cluster & Severe Rupture",
+      category: "pothole",
+      severity: "critical",
+      riskScore: 88,
+      latOffset: 0.0068,
+      lngOffset: 0.0052,
+      location: isChennai ? "Anna Salai Arterial Lane, near DMS Metro" : `${cleanCity} Central Arterial Express Way`,
+      description: "Multiple sharp rim-bending craters ~12cm deep. Vehicles swerving into opposite lane.",
+      reportedTime: "18 mins ago",
+      confirmations: 38,
+      credibility: 96,
+      status: "verified"
+    },
+    {
+      id: "RPT-2026-102",
+      title: "Submerged Rail Underpass Waterlogging",
+      category: "waterlog",
+      severity: "critical",
+      riskScore: 94,
+      latOffset: -0.0062,
+      lngOffset: -0.0041,
+      location: isChennai ? "Kathipara Junction Underpass Corridor" : `${cleanCity} Rail Underpass Basin`,
+      description: "Water accumulation depth 2.5 ft. Two hatchbacks stalled with hydrolocked engines.",
+      reportedTime: "12 mins ago",
+      confirmations: 52,
+      credibility: 99,
+      status: "verified"
+    },
+    {
+      id: "RPT-2026-103",
+      title: "Zero Sightline Blind Turn Collision Spot",
+      category: "blindturn",
+      severity: "high",
+      riskScore: 68,
+      latOffset: 0.0145,
+      lngOffset: 0.0118,
+      location: isChennai ? "GST Road & Guindy Blind Curve Cross" : `${cleanCity} Ring Road Blind Junction`,
+      description: "Sharp corner with overgrown trees blocking sightline and absent convex mirror.",
+      reportedTime: "1 hour ago",
+      confirmations: 19,
+      credibility: 88,
+      status: "verified"
+    },
+    {
+      id: "RPT-2026-104",
+      title: "Fallen Tree & Obstructed Carriageway",
+      category: "tree",
+      severity: "high",
+      riskScore: 62,
+      latOffset: 0.0051,
+      lngOffset: -0.0112,
+      location: isChennai ? "Mount-Poonamallee Road Tree Obstruction" : `${cleanCity} West Boulevard Lane`,
+      description: "Large bough snapped in storm; partially blocking the central lane without warning cones.",
+      reportedTime: "2 hours ago",
+      confirmations: 14,
+      credibility: 91,
+      status: "verified"
+    },
+    {
+      id: "RPT-2026-105",
+      title: "High-Frequency Speed Accident Blackspot",
+      category: "accident",
+      severity: "critical",
+      riskScore: 84,
+      latOffset: -0.0125,
+      lngOffset: 0.0152,
+      location: isChennai ? "OMR IT Expressway Speed Blackspot (Sholinganallur)" : `${cleanCity} Outer Expressway Curve`,
+      description: "Dangerous camber tilt with wet-surface skid hazard. Fatal accidents recorded at night.",
+      reportedTime: "5 hours ago",
+      confirmations: 44,
+      credibility: 98,
+      status: "verified"
+    },
+    {
+      id: "RPT-2026-106",
+      title: "Broken Streetlight Corridor (Pitch Dark)",
+      category: "lighting",
+      severity: "moderate",
+      riskScore: 42,
+      latOffset: 0.0138,
+      lngOffset: -0.0075,
+      location: isChennai ? "T. Nagar Ranganathan St Broken Streetlights" : `${cleanCity} Service Link North`,
+      description: "5 consecutive light poles out of commission. Pedestrians crossing without reflective visibility.",
+      reportedTime: "6 hours ago",
+      confirmations: 8,
+      credibility: 85,
+      status: "pending"
+    },
+    {
+      id: "RPT-2026-107",
+      title: "Unmarked Road Construction Trench",
+      category: "construction",
+      severity: "high",
+      riskScore: 65,
+      latOffset: 0.0022,
+      lngOffset: 0.0205,
+      location: isChennai ? "Madhavaram High Road Open Trench" : `${cleanCity} Flyover Extension Trench`,
+      description: "Open trench for municipal pipe laying. Missing reflective caution tape.",
+      reportedTime: "8 hours ago",
+      confirmations: 12,
+      credibility: 89,
+      status: "pending"
+    },
+    {
+      id: "RPT-2026-108",
+      title: "Cleared Gravel Spill — Resolved",
+      category: "pothole",
+      severity: "low",
+      riskScore: 15,
+      latOffset: 0.0092,
+      lngOffset: -0.0025,
+      location: isChennai ? "Marina Beach Kamarajar Salai (Cleared Gravel)" : `${cleanCity} Central Carriageway Link`,
+      description: "Gravel and stone chips sweep completed by highway maintenance team.",
+      reportedTime: "12 hours ago",
+      confirmations: 22,
+      credibility: 99,
+      status: "resolved"
+    }
+  ];
+
+  return templates.map(t => ({
+    ...t,
+    lat: Number((centerLat + t.latOffset).toFixed(5)),
+    lng: Number((centerLng + t.lngOffset).toFixed(5)),
+  }));
+}
+
+/**
+ * MODULE 1: Dynamic Route Generator for Selected City
+ * Anchored to centerLat, centerLng so the map NEVER jumps back to Delhi.
+ */
+function generateRoutesForLocation(centerLat, centerLng, cityName) {
+  const cleanCity = cityName ? cityName.split(',')[0].trim() : "City";
+
+  return {
+    safest: {
+      id: "safest",
+      title: `Outer Bypass Highway (Via ${cleanCity} Ring West)`,
+      badge: "RECOMMENDED: SAFEST ROUTE",
+      distance: "14.6 km",
+      duration: "24 mins",
+      overallRisk: 18,
+      riskCategory: "Low Risk",
+      summary: "Multi-lane arterial highway with modern stormwater drainage, bright LED lighting, and zero flood underpasses.",
+      segments: [
+        {
+          name: `${cleanCity} Central to Ring Junction`,
+          riskScore: 14,
+          category: "low",
+          color: "#10b981", // Green
+          hazards: "None identified",
+          weather: "Light Drizzle (4 mm/h)",
+          reports: "2 Verified Clear",
+          lastUpdated: "8 mins ago",
+          coords: [
+            [centerLat, centerLng],
+            [centerLat + 0.0045, centerLng - 0.0055],
+            [centerLat + 0.0095, centerLng - 0.0110]
+          ]
+        },
+        {
+          name: `${cleanCity} Ring West Expressway North Corridor`,
+          riskScore: 22,
+          category: "low",
+          color: "#10b981", // Green
+          hazards: "Minor asphalt roughness",
+          weather: "Moderate Rain (10 mm/h)",
+          reports: "1 Community Report",
+          lastUpdated: "18 mins ago",
+          coords: [
+            [centerLat + 0.0095, centerLng - 0.0110],
+            [centerLat + 0.0165, centerLng - 0.0155],
+            [centerLat + 0.0245, centerLng - 0.0115]
+          ]
+        },
+        {
+          name: `${cleanCity} Airport Link Elevated Flyover`,
+          riskScore: 19,
+          category: "low",
+          color: "#10b981", // Green
+          hazards: "None; elevated viaduct",
+          weather: "Heavy Rain (28 mm/h) — Rapid Runoff",
+          reports: "Zero incident alerts",
+          lastUpdated: "5 mins ago",
+          coords: [
+            [centerLat + 0.0245, centerLng - 0.0115],
+            [centerLat + 0.0305, centerLng - 0.0035],
+            [centerLat + 0.0345, centerLng + 0.0055]
+          ]
+        }
+      ]
+    },
+    shortest: {
+      id: "shortest",
+      title: `Central Underpass & Old ${cleanCity} Corridor`,
+      badge: "SHORTEST BUT CRITICAL RISK",
+      distance: "10.2 km",
+      duration: "19 mins",
+      overallRisk: 82,
+      riskCategory: "Critical Risk",
+      summary: "Saves 5 minutes, but contains severe 2.5 ft waterlogging at Rail Underpass, 3 sharp blind turns, and deep craters.",
+      segments: [
+        {
+          name: `Inner Arterial to Commercial Cross`,
+          riskScore: 68,
+          category: "high",
+          color: "#f97316", // Orange
+          hazards: "Deep Pothole Cluster (~12cm)",
+          weather: "Heavy Rain (32 mm/h)",
+          reports: "38 Verified Driver Reports",
+          lastUpdated: "24 mins ago",
+          coords: [
+            [centerLat, centerLng],
+            [centerLat + 0.0030, centerLng + 0.0030],
+            [centerLat + 0.0068, centerLng + 0.0052]
+          ]
+        },
+        {
+          name: `${cleanCity} Rail Underpass Basin`,
+          riskScore: 94,
+          category: "critical",
+          color: "#ef4444", // Red (Critical)
+          hazards: "Submerged Roadway (2.5 ft depth) • Stalled Vehicles",
+          weather: "Flash Flooding Threat",
+          reports: "52 Verified Driver Reports",
+          lastUpdated: "12 mins ago",
+          coords: [
+            [centerLat + 0.0068, centerLng + 0.0052],
+            [centerLat - 0.0010, centerLng - 0.0010],
+            [centerLat - 0.0062, centerLng - 0.0041]
+          ]
+        },
+        {
+          name: `Old Town Cross-Cutting Link`,
+          riskScore: 78,
+          category: "critical",
+          color: "#ef4444", // Red
+          hazards: "Unsafe Junction • Waterlogging",
+          weather: "Heavy Rain (35 mm/h)",
+          reports: "19 Verified Reports",
+          lastUpdated: "40 mins ago",
+          coords: [
+            [centerLat - 0.0062, centerLng - 0.0041],
+            [centerLat + 0.0150, centerLng + 0.0020],
+            [centerLat + 0.0345, centerLng + 0.0055]
+          ]
+        }
+      ]
+    },
+    alternate: {
+      id: "alternate",
+      title: `${cleanCity} River & Coastal Boulevard Link`,
+      badge: "ALTERNATIVE SCENIC BYPASS",
+      distance: "16.1 km",
+      duration: "28 mins",
+      overallRisk: 48,
+      riskCategory: "High Risk",
+      summary: "Active road construction ongoing; narrow lanes and low street lighting past 7:00 PM.",
+      segments: [
+        {
+          name: `East Embankment Boulevard`,
+          riskScore: 42,
+          category: "moderate",
+          color: "#eab308", // Yellow
+          hazards: "Slippery wet asphalt",
+          weather: "Moderate Rain (12 mm/h)",
+          reports: "6 Verified Reports",
+          lastUpdated: "1 hour ago",
+          coords: [
+            [centerLat, centerLng],
+            [centerLat - 0.0035, centerLng + 0.0095],
+            [centerLat + 0.0022, centerLng + 0.0205]
+          ]
+        },
+        {
+          name: `Fort Service Corridor`,
+          riskScore: 65,
+          category: "high",
+          color: "#f97316", // Orange
+          hazards: "Unmarked Trench • Low Lighting",
+          weather: "Heavy Rain (25 mm/h)",
+          reports: "12 Verified Reports",
+          lastUpdated: "8 hours ago",
+          coords: [
+            [centerLat + 0.0022, centerLng + 0.0205],
+            [centerLat + 0.0160, centerLng + 0.0245],
+            [centerLat + 0.0270, centerLng + 0.0185]
+          ]
+        },
+        {
+          name: `Northeast Connector`,
+          riskScore: 36,
+          category: "moderate",
+          color: "#eab308", // Yellow
+          hazards: "Moderate Traffic Congestion",
+          weather: "Overcast",
+          reports: "4 Community Reports",
+          lastUpdated: "45 mins ago",
+          coords: [
+            [centerLat + 0.0270, centerLng + 0.0185],
+            [centerLat + 0.0315, centerLng + 0.0115],
+            [centerLat + 0.0345, centerLng + 0.0055]
+          ]
+        }
+      ]
+    }
+  };
+}
+
+/**
+ * MODULE 5: Dynamic Heatmap Generator for Active City
+ */
+function generateHeatmapForLocation(centerLat, centerLng) {
+  return {
+    overall: [
+      [centerLat + 0.0068, centerLng + 0.0052, 0.95],
+      [centerLat - 0.0062, centerLng - 0.0041, 1.0],
+      [centerLat + 0.0145, centerLng + 0.0118, 0.75],
+      [centerLat + 0.0051, centerLng - 0.0112, 0.65],
+      [centerLat - 0.0125, centerLng + 0.0152, 0.9],
+      [centerLat + 0.0138, centerLng - 0.0075, 0.45],
+      [centerLat + 0.0022, centerLng + 0.0205, 0.7],
+      [centerLat - 0.0035, centerLng + 0.0095, 0.5]
+    ],
+    accident: [
+      [centerLat - 0.0125, centerLng + 0.0152, 1.0],
+      [centerLat + 0.0145, centerLng + 0.0118, 0.85],
+      [centerLat + 0.0030, centerLng + 0.0030, 0.6]
+    ],
+    waterlog: [
+      [centerLat - 0.0062, centerLng - 0.0041, 1.0],
+      [centerLat - 0.0010, centerLng - 0.0010, 0.8],
+      [centerLat + 0.0022, centerLng + 0.0205, 0.7]
+    ],
+    damage: [
+      [centerLat + 0.0068, centerLng + 0.0052, 0.95],
+      [centerLat + 0.0051, centerLng - 0.0112, 0.7],
+      [centerLat + 0.0138, centerLng - 0.0075, 0.5]
+    ]
+  };
+}
+
+/**
+ * REFRESH ALL LOCATION-DEPENDENT DATA & MAPS
+ * Ensures the map, routes, pins and radar are locked to active coordinates.
+ */
+function refreshLocationData(lat, lng, cityName, source = "default") {
+  // 1. Generate local hazards & routes
+  hazardsData = generateHazardsForLocation(lat, lng, cityName);
+  ROUTES_DATA = generateRoutesForLocation(lat, lng, cityName);
+
+  // 2. Render User Marker & 2km Radar
+  renderUserAndRadar();
+
+  // 3. Render Hazard Pins
+  renderHazardPinsOnMap();
+
+  // 4. Render Active Route (Centers map bounds around the active route in the selected city!)
+  renderSelectedRoute(APP_STATE.activeRoute);
+
+  // 5. Update Heatmap Layer
+  updateHeatmapData();
+
+  // 6. Update Community Cards & KPI Counters
+  renderCommunityCards();
+  updateKPICounters();
+
+  // 7. Update UI Labels & Coordinates
+  updateInterfaceLabels(lat, lng, cityName, source);
+}
+
+/**
+ * Render User Pin & 2km Radar Circle (Requirement 3 & 4)
  */
 function renderUserAndRadar() {
+  if (!safewayMap) return;
+
   if (userMarker) safewayMap.removeLayer(userMarker);
   if (proximityCircle) safewayMap.removeLayer(proximityCircle);
 
@@ -685,30 +714,241 @@ function renderUserAndRadar() {
     iconAnchor: [11, 11]
   });
 
+  const markerLabel = APP_STATE.isDefaultLocation
+    ? "Your Current Location (Default: Chennai, Tamil Nadu)"
+    : (APP_STATE.userLocation.name || "Your Current Location");
+
   userMarker = L.marker([APP_STATE.userLocation.lat, APP_STATE.userLocation.lng], { icon: userIcon })
     .addTo(safewayMap)
     .bindPopup(`
       <div class="text-xs space-y-1">
         <div class="font-bold text-white flex items-center gap-1.5">
-          <span class="w-2 h-2 rounded-full bg-brand-400"></span> You (Live GPS Location)
+          <span class="w-2 h-2 rounded-full bg-brand-400"></span> ${markerLabel}
         </div>
         <div class="text-[11px] text-slate-300 font-mono">${APP_STATE.userLocation.lat.toFixed(4)}° N, ${APP_STATE.userLocation.lng.toFixed(4)}° E</div>
         <div class="text-[10px] text-emerald-400 font-bold">2.0 km Proactive Radar Active</div>
       </div>
     `);
 
+  // 2 km Proximity Radar Circle around user coordinates
   proximityCircle = L.circle([APP_STATE.userLocation.lat, APP_STATE.userLocation.lng], {
     radius: 2000,
     color: '#10b981',
     fillColor: '#10b981',
-    fillOpacity: 0.04,
+    fillOpacity: 0.05,
     weight: 1.5,
     dashArray: '6, 6'
   }).addTo(safewayMap);
 }
 
 /**
- * Render Hazard Pins with 4-Color Severity
+ * Update Interface Labels with Active Coordinates (Requirement 3 & 4)
+ */
+function updateInterfaceLabels(lat, lng, cityName, source) {
+  const coordText = `${lat.toFixed(4)}° N, ${lng.toFixed(4)}° E`;
+
+  // Top Announcement Ticker
+  const ticker = document.getElementById("tickerStatusText");
+  if (ticker) {
+    ticker.innerText = `Active Location: ${cityName} (${coordText}) • 2 km Radar Active`;
+  }
+
+  // Active Location Notification Banner
+  const bannerText = document.getElementById("activeLocationBannerText");
+  if (bannerText) {
+    bannerText.innerText = `${cityName} (${coordText})`;
+  }
+
+  const badge = document.getElementById("locationSourceBadge");
+  if (badge) {
+    if (source === "gps") {
+      badge.className = "px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+      badge.innerText = "GPS Detected";
+    } else if (source === "search" || source === "preset") {
+      badge.className = "px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30";
+      badge.innerText = "City Selected";
+    } else {
+      badge.className = "px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30";
+      badge.innerText = "Default: Chennai";
+    }
+  }
+
+  const subtext = document.getElementById("locationBannerSubtext");
+  if (subtext) {
+    if (source === "gps") {
+      subtext.innerText = "Real-time position detected via browser Geolocation API. Proximity alerts locked.";
+    } else if (source === "search" || source === "preset") {
+      subtext.innerText = `Displaying road safety telemetry and hazard map for ${cityName}.`;
+    } else {
+      subtext.innerText = "Location permission not granted. Showing default Chennai, Tamil Nadu map.";
+    }
+  }
+
+  // Toolbar Badge & Label
+  const toolbarCity = document.getElementById("toolbarCityName");
+  if (toolbarCity) toolbarCity.innerText = cityName;
+
+  const cityBadge = document.getElementById("activeCityBadge");
+  if (cityBadge) cityBadge.innerText = cityName.split(',')[0];
+
+  // Evidence Form Coordinates
+  const evidenceCoords = document.getElementById("evidenceCoordinatesText");
+  if (evidenceCoords) {
+    evidenceCoords.innerText = `Attached Coordinates: ${coordText}`;
+  }
+
+  // Route Inputs
+  const startInput = document.getElementById("routeStartInput");
+  const destInput = document.getElementById("routeDestInput");
+  if (startInput && (startInput.value === "City Central Station" || startInput.value.includes("Central"))) {
+    startInput.value = `${cityName.split(',')[0]} Central Station`;
+  }
+  if (destInput && (destInput.value === "Airport Expressway Terminal" || destInput.value.includes("Airport"))) {
+    destInput.value = `${cityName.split(',')[0]} International Airport (MAA)`;
+  }
+}
+
+/**
+ * BROWSER GEOLOCATION API (Requirement 2, 3, 4)
+ * Detects user coordinates, or falls back cleanly to Chennai.
+ */
+function requestUserGeolocation(isUserTriggered = false) {
+  if (!navigator.geolocation) {
+    console.warn("Geolocation API unavailable in this browser.");
+    applyDefaultLocationFallback("Browser does not support Geolocation. Using Chennai default.");
+    return;
+  }
+
+  if (isUserTriggered) {
+    showToast("Detecting your location via GPS...");
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    async (position) => {
+      const lat = position.coords.latitude;
+      const lng = position.coords.longitude;
+      let detectedName = "Your Current Location";
+
+      try {
+        // Reverse geocoding via OpenStreetMap Nominatim (HTTPS)
+        const resp = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`,
+          { headers: { 'Accept-Language': 'en' } }
+        );
+        if (resp.ok) {
+          const data = await resp.json();
+          const city = data.address?.city || data.address?.town || data.address?.suburb || data.display_name.split(',')[0];
+          const state = data.address?.state || "";
+          detectedName = state ? `${city}, ${state}` : city;
+        }
+      } catch (err) {
+        console.warn("Reverse geocode network error, using lat/lng", err);
+      }
+
+      APP_STATE.isDefaultLocation = false;
+      APP_STATE.locationPermissionStatus = "granted";
+      updateActiveLocation(lat, lng, detectedName, "gps");
+      showToast(`✓ Current Location detected: ${detectedName}`);
+    },
+    (error) => {
+      console.warn("Geolocation error/denied:", error.message);
+      APP_STATE.locationPermissionStatus = "denied";
+      applyDefaultLocationFallback(
+        isUserTriggered 
+          ? "Location permission denied. Defaulting to Chennai, Tamil Nadu (13.0827° N, 80.2707° E)."
+          : "Location permission denied or unavailable. Defaulting to Chennai, Tamil Nadu."
+      );
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 9000,
+      maximumAge: 0
+    }
+  );
+}
+
+/**
+ * Apply Chennai Default Location (Requirement 4)
+ */
+function applyDefaultLocationFallback(message) {
+  APP_STATE.isDefaultLocation = true;
+  updateActiveLocation(DEFAULT_LOCATION.lat, DEFAULT_LOCATION.lng, DEFAULT_LOCATION.name, "default");
+  if (message) {
+    showToast(message);
+  }
+}
+
+/**
+ * CITY SEARCH & SELECTION HANDLERS (Requirement 5)
+ * Moves the map directly to selected city and NEVER keeps displaying old city.
+ */
+async function executeCitySearch() {
+  const input = document.getElementById("citySearchInput");
+  const query = input ? input.value.trim() : "";
+
+  if (!query) {
+    showToast("Please enter a city or location to search.");
+    return;
+  }
+
+  showToast(`Searching OpenStreetMap for "${query}"...`);
+
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`,
+      { headers: { 'Accept-Language': 'en' } }
+    );
+    const data = await res.json();
+
+    if (data && data.length > 0) {
+      const lat = parseFloat(data[0].lat);
+      const lng = parseFloat(data[0].lon);
+      const name = data[0].display_name.split(',').slice(0, 2).join(',').trim();
+
+      APP_STATE.isDefaultLocation = false;
+      updateActiveLocation(lat, lng, name, "search");
+      showToast(`✓ Map updated to ${name}`);
+      if (input) input.value = name;
+    } else {
+      showToast(`City "${query}" not found. Please try another name.`);
+    }
+  } catch (e) {
+    showToast("Geocoding service unavailable. Please check your internet connection.");
+  }
+}
+
+window.selectCityPreset = function(cityName, lat, lng) {
+  APP_STATE.isDefaultLocation = (cityName === "Chennai");
+  updateActiveLocation(lat, lng, cityName, "preset");
+  showToast(`✓ Map switched to ${cityName}`);
+};
+
+/**
+ * Central Location Update Dispatcher
+ * Centers map, updates user marker, clears old city routes, and re-draws for new city.
+ */
+function updateActiveLocation(lat, lng, cityName, source = "search") {
+  APP_STATE.userLocation = { lat, lng, name: cityName };
+
+  // Persist user selection
+  localStorage.setItem("safeway_last_city", JSON.stringify(APP_STATE.userLocation));
+
+  // Center primary map on new coordinates
+  if (safewayMap) {
+    safewayMap.setView([lat, lng], 14, { animate: true });
+  }
+
+  // Center heatmap on new coordinates
+  if (dangerHeatMap) {
+    dangerHeatMap.setView([lat, lng], 13, { animate: true });
+  }
+
+  // Refresh all pins, routes and calculations for this location
+  refreshLocationData(lat, lng, cityName, source);
+}
+
+/**
+ * Render Hazard Pins on Leaflet Map
  */
 function renderHazardPinsOnMap(filter = "all") {
   if (!hazardLayerGroup) return;
@@ -719,7 +959,7 @@ function renderHazardPinsOnMap(filter = "all") {
     : hazardsData.filter(h => h.category === filter);
 
   filtered.forEach(h => {
-    let pinClass = "hazard-pin " + h.severity;
+    const pinClass = "hazard-pin " + h.severity;
     let iconSymbol = "⚠️";
 
     if (h.category === "pothole") iconSymbol = "🕳️";
@@ -737,6 +977,13 @@ function renderHazardPinsOnMap(filter = "all") {
       iconAnchor: [17, 17]
     });
 
+    const distFromUser = calculateDistanceKm(
+      APP_STATE.userLocation.lat,
+      APP_STATE.userLocation.lng,
+      h.lat,
+      h.lng
+    ).toFixed(2);
+
     const marker = L.marker([h.lat, h.lng], { icon: customIcon });
 
     marker.bindPopup(`
@@ -752,7 +999,7 @@ function renderHazardPinsOnMap(filter = "all") {
         <div class="text-[11px] text-slate-300">📍 ${h.location}</div>
         <p class="text-[11px] text-slate-400 leading-snug">${h.description}</p>
         <div class="pt-1.5 border-t border-white/10 flex items-center justify-between text-[10px] font-mono text-slate-400">
-          <span>${h.reportedTime}</span>
+          <span>${distFromUser} km away</span>
           <span class="text-brand-400 font-bold">${h.confirmations} Verified</span>
         </div>
       </div>
@@ -766,10 +1013,13 @@ function renderHazardPinsOnMap(filter = "all") {
 }
 
 /**
- * Render Multiple Route Segments with Risk Colors (Green, Yellow, Orange, Red)
+ * Render Multiple Route Segments with Risk Colors
+ * Never continues displaying the previous city's route map.
  */
 function renderSelectedRoute(routeKey) {
   APP_STATE.activeRoute = routeKey;
+
+  if (!safewayMap) return;
 
   // Clear existing polylines
   activePolylines.forEach(p => safewayMap.removeLayer(p));
@@ -779,7 +1029,7 @@ function renderSelectedRoute(routeKey) {
   if (!route) return;
 
   // Render each segment with its specific risk color
-  route.segments.forEach((seg, idx) => {
+  route.segments.forEach((seg) => {
     const poly = L.polyline(seg.coords, {
       color: seg.color,
       weight: 6,
@@ -795,17 +1045,18 @@ function renderSelectedRoute(routeKey) {
       openSegmentInspector(seg);
     });
 
-    // Hover effect
     poly.on("mouseover", () => poly.setStyle({ weight: 9 }));
     poly.on("mouseout", () => poly.setStyle({ weight: 6 }));
 
     activePolylines.push(poly);
   });
 
-  // Fit bounds to route
+  // Fit bounds strictly to the new city's route
   const allCoords = route.segments.flatMap(s => s.coords);
-  const bounds = L.latLngBounds(allCoords);
-  safewayMap.fitBounds(bounds, { padding: [60, 60] });
+  if (allCoords.length > 0) {
+    const bounds = L.latLngBounds(allCoords);
+    safewayMap.fitBounds(bounds, { padding: [60, 60], maxZoom: 15 });
+  }
 
   // Update Route Selection Cards UI
   ["safest", "shortest", "alternate"].forEach(k => {
@@ -827,7 +1078,7 @@ window.selectRouteOption = function(routeKey) {
 };
 
 /**
- * Open Segment Click Inspector (Module 1 Requirement)
+ * Open Segment Click Inspector
  */
 function openSegmentInspector(seg) {
   const box = document.getElementById("segmentInspectorBox");
@@ -835,7 +1086,6 @@ function openSegmentInspector(seg) {
 
   box.classList.remove("hidden");
 
-  // Populate data
   document.getElementById("inspectorRoadName").innerText = seg.name;
   document.getElementById("inspectorScoreVal").innerText = seg.riskScore;
   document.getElementById("inspectorSegmentDesc").innerText = `Assessed ${seg.category.toUpperCase()} hazard corridor with active spatial telemetry.`;
@@ -929,8 +1179,6 @@ function initDangerHeatMap() {
   }).addTo(dangerHeatMap);
 
   dangerHeatMap.getContainer().classList.add("dark-tiles");
-
-  // Render initial HeatLayer
   updateHeatmapData();
 }
 
@@ -957,17 +1205,18 @@ window.updateHeatmapData = function() {
 
   if (heatLayer) dangerHeatMap.removeLayer(heatLayer);
 
-  const dataset = HEAT_DATASETS[APP_STATE.heatmapMode] || HEAT_DATASETS.overall;
+  const localHeatmaps = generateHeatmapForLocation(APP_STATE.userLocation.lat, APP_STATE.userLocation.lng);
+  const dataset = localHeatmaps[APP_STATE.heatmapMode] || localHeatmaps.overall;
 
   heatLayer = L.heatLayer(dataset, {
     radius: 30,
     blur: 20,
     maxZoom: 17,
     gradient: {
-      0.2: '#3b82f6', // blue (low)
-      0.5: '#eab308', // yellow
-      0.7: '#f97316', // orange
-      1.0: '#ef4444'  // red (critical)
+      0.2: '#3b82f6',
+      0.5: '#eab308',
+      0.7: '#f97316',
+      1.0: '#ef4444'
     }
   }).addTo(dangerHeatMap);
 };
@@ -976,7 +1225,7 @@ window.updateHeatmapData = function() {
  * MODULE 3: Weather Data Sync Simulator
  */
 window.refreshLiveWeatherData = function() {
-  showToast("Syncing Live Weather Telemetry (Open-Meteo & Radar)...");
+  showToast("Syncing Live Weather Telemetry (Open-Meteo Radar)...");
 
   setTimeout(() => {
     const rain = (28 + Math.floor(Math.random() * 12));
@@ -987,7 +1236,7 @@ window.refreshLiveWeatherData = function() {
     document.getElementById("weatherRainProb").innerText = `${prob}%`;
     document.getElementById("weatherVisibility").innerText = `${vis} km`;
 
-    showToast("Live Weather Radar Refreshed: Heavy Rain Advisory active.");
+    showToast(`Live Weather Radar Refreshed for ${APP_STATE.userLocation.name.split(',')[0]}.`);
   }, 600);
 };
 
@@ -1086,7 +1335,6 @@ window.voteConfirmHazard = function(hazardId) {
 
     APP_STATE.votedReports.add(hazardId);
     localStorage.setItem("safeway_user_votes", JSON.stringify([...APP_STATE.votedReports]));
-    localStorage.setItem("safeway_hazards", JSON.stringify(hazardsData));
 
     renderCommunityCards();
     updateKPICounters();
@@ -1100,7 +1348,6 @@ window.markHazardResolved = function(hazardId) {
     item.status = "resolved";
     item.severity = "low";
     item.riskScore = 15;
-    localStorage.setItem("safeway_hazards", JSON.stringify(hazardsData));
     renderCommunityCards();
     updateKPICounters();
     renderHazardPinsOnMap();
@@ -1121,12 +1368,9 @@ function initPhotoUploadHandlers() {
 
     fileInput.addEventListener("change", (e) => {
       const file = e.target.files[0];
-      if (file) {
-        handleSelectedImage(file);
-      }
+      if (file) handleSelectedImage(file);
     });
 
-    // Drag & Drop
     dropZone.addEventListener("dragover", (e) => {
       e.preventDefault();
       dropZone.classList.add("border-brand-500");
@@ -1163,7 +1407,6 @@ function handleSelectedImage(file) {
     document.getElementById("uploadPrompt").classList.add("hidden");
     document.getElementById("imagePreviewContainer").classList.remove("hidden");
     
-    // Simulate AI Vision Scan after 700ms
     setTimeout(() => {
       document.getElementById("aiBoundingBoxOverlay").classList.remove("hidden");
       lucide.createIcons();
@@ -1192,7 +1435,7 @@ window.attachCurrentDeviceGPS = function() {
         showToast("High-precision GPS coordinates locked to report.");
       },
       () => {
-        showToast("Geolocation access denied. Using central coordinates.");
+        showToast("Geolocation access denied. Using active map coordinates.");
       }
     );
   }
@@ -1204,7 +1447,6 @@ function submitHazardEvidenceForm() {
   const notes = document.getElementById("evidenceNotes").value || "Driver hazard photo report submitted to spatial verification queue.";
   const previewSrc = document.getElementById("previewImg").getAttribute("src");
 
-  // Animate upload progress
   const progressContainer = document.getElementById("uploadProgressBarContainer");
   const progressFill = document.getElementById("uploadProgressFill");
   const progressPercent = document.getElementById("uploadProgressPercent");
@@ -1231,8 +1473,8 @@ function submitHazardEvidenceForm() {
           category: category,
           severity: "high",
           riskScore: 72,
-          lat: APP_STATE.userLocation.lat + (Math.random() - 0.5) * 0.012,
-          lng: APP_STATE.userLocation.lng + (Math.random() - 0.5) * 0.012,
+          lat: Number((APP_STATE.userLocation.lat + (Math.random() - 0.5) * 0.012).toFixed(5)),
+          lng: Number((APP_STATE.userLocation.lng + (Math.random() - 0.5) * 0.012).toFixed(5)),
           location: location,
           description: notes,
           reportedTime: "Just now",
@@ -1246,8 +1488,6 @@ function submitHazardEvidenceForm() {
         };
 
         hazardsData.unshift(newHazard);
-        localStorage.setItem("safeway_hazards", JSON.stringify(hazardsData));
-
         renderCommunityCards();
         renderHazardPinsOnMap();
         updateKPICounters();
@@ -1258,7 +1498,7 @@ function submitHazardEvidenceForm() {
           confetti({ particleCount: 50, spread: 70, origin: { y: 0.6 } });
         }
 
-        showToast(`Report ${newId} submitted! Dispatched for community verification.`);
+        showToast(`Report ${newId} submitted for community verification.`);
       }, 300);
     }
   }, 200);
@@ -1275,7 +1515,6 @@ function initChartsDashboard() {
 
   if (!window.Chart) return;
 
-  // Chart 1: Risk Distribution
   if (ctxRisk) {
     chartRisk = new Chart(ctxRisk, {
       type: 'doughnut',
@@ -1298,7 +1537,6 @@ function initChartsDashboard() {
     });
   }
 
-  // Chart 2: Category Bar Chart
   if (ctxCat) {
     chartCategory = new Chart(ctxCat, {
       type: 'bar',
@@ -1323,7 +1561,6 @@ function initChartsDashboard() {
     });
   }
 
-  // Chart 3: Trends Line
   if (ctxTrend) {
     chartTrends = new Chart(ctxTrend, {
       type: 'line',
@@ -1358,7 +1595,6 @@ function initChartsDashboard() {
     });
   }
 
-  // Chart 4: Weather Correlation
   if (ctxWeather) {
     chartWeather = new Chart(ctxWeather, {
       type: 'bar',
@@ -1428,7 +1664,7 @@ function updateKPICounters() {
   const resolvedEl = document.getElementById("kpiResolvedReports");
   const heroVerified = document.getElementById("heroVerifiedCount");
 
-  if (totalEl) totalEl.innerText = total * 18; // scaled
+  if (totalEl) totalEl.innerText = total * 18;
   if (verifiedEl) verifiedEl.innerText = verified * 16;
   if (pendingEl) pendingEl.innerText = pending * 10;
   if (criticalEl) criticalEl.innerText = critical;
@@ -1437,10 +1673,35 @@ function updateKPICounters() {
 }
 
 /**
- * MODULE 9: Smart Nearby Proximity Radar Simulation
+ * MODULE 9: Smart Nearby Proximity Radar (Requirement 6)
+ * Calculates actual distance from currently selected location to hazards.
  */
 window.triggerImmediateNearbyRadarCheck = function() {
   playAlertTone();
+
+  // Find hazards within proximity of APP_STATE.userLocation
+  const nearby = hazardsData
+    .map(h => ({
+      ...h,
+      distanceKm: calculateDistanceKm(APP_STATE.userLocation.lat, APP_STATE.userLocation.lng, h.lat, h.lng)
+    }))
+    .sort((a, b) => a.distanceKm - b.distanceKm);
+
+  const topThreat = nearby[0] || {
+    title: "Critical Road Hazard Ahead",
+    location: APP_STATE.userLocation.name,
+    distanceKm: 0.45
+  };
+
+  const distMeters = Math.round(topThreat.distanceKm * 1000);
+  const distText = distMeters < 1000 ? `${distMeters}m` : `${topThreat.distanceKm.toFixed(1)}km`;
+
+  // Update Alert Toast with local hazard info
+  const toastTitle = document.getElementById("alertToastTitle");
+  const toastDesc = document.getElementById("alertToastDesc");
+
+  if (toastTitle) toastTitle.innerText = `${topThreat.title} (${distText} away)`;
+  if (toastDesc) toastDesc.innerText = `${topThreat.location} • Stay alert`;
 
   // Slide in Alert Toast
   const toast = document.getElementById("proximityAlertToast");
@@ -1449,14 +1710,15 @@ window.triggerImmediateNearbyRadarCheck = function() {
     toast.classList.add("translate-x-0");
   }
 
+  // OS Push Notification if granted
   if ("Notification" in window && Notification.permission === "granted") {
-    new Notification("⚠️ CRITICAL ROAD HAZARD (450m Ahead)", {
-      body: "Submerged Rail Underpass Waterlogging (2.6 ft). Avoid left lane.",
+    new Notification(`⚠️ ROAD HAZARD ALERT (${distText} Ahead)`, {
+      body: `${topThreat.title} at ${topThreat.location}. Stay alert!`,
       icon: "https://unpkg.com/lucide-static@0.321.0/icons/shield-alert.svg"
     });
   }
 
-  showToast("Proximity Radar: High-threat hazard detected 450m on heading trajectory!");
+  showToast(`Proximity Radar: ${topThreat.title} detected ${distText} from current map position!`);
 };
 
 window.dismissProximityToast = function() {
@@ -1504,6 +1766,21 @@ function playAlertTone() {
 }
 
 /**
+ * Great-Circle Distance Calculation (Haversine Formula)
+ */
+function calculateDistanceKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
+/**
  * Toast Notification Helper
  */
 function showToast(msg) {
@@ -1526,17 +1803,17 @@ function showToast(msg) {
 }
 
 /**
- * UI Navigation & Presentation Deck
+ * UI Navigation & Presentation Deck Event Handlers
  */
 function initEventListeners() {
-  // Mobile Nav
+  // Mobile Nav Toggle
   const mobBtn = document.getElementById("mobileMenuBtn");
   const mobMenu = document.getElementById("mobileMenu");
   if (mobBtn && mobMenu) {
     mobBtn.addEventListener("click", () => mobMenu.classList.toggle("hidden"));
   }
 
-  // Report CTAs
+  // Report CTA
   const navReport = document.getElementById("navReportBtn");
   if (navReport) {
     navReport.addEventListener("click", () => {
@@ -1545,7 +1822,7 @@ function initEventListeners() {
     });
   }
 
-  // View switchers
+  // Map View Mode Switchers
   const btnStd = document.getElementById("viewStandardMapBtn");
   const btnSafe = document.getElementById("viewSafetyMapBtn");
   const btnHeat = document.getElementById("viewHeatmapBtn");
@@ -1571,6 +1848,28 @@ function initEventListeners() {
     });
   }
 
+  // City Search Input Enter Key Listener
+  const cityInput = document.getElementById("citySearchInput");
+  if (cityInput) {
+    cityInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        executeCitySearch();
+      }
+    });
+  }
+
+  // Route Start Input Enter Key Listener
+  const startInput = document.getElementById("routeStartInput");
+  if (startInput) {
+    startInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        handleRouteSearch();
+      }
+    });
+  }
+
   // Toggle Alert Radar button in Nav
   const alertRadarBtn = document.getElementById("toggleAlertRadarBtn");
   if (alertRadarBtn) {
@@ -1581,8 +1880,7 @@ function initEventListeners() {
   const calcBtn = document.getElementById("calculateRoutesBtn");
   if (calcBtn) {
     calcBtn.addEventListener("click", () => {
-      renderSelectedRoute("safest");
-      showToast("Multi-route comparative analysis completed. Safest Route applied.");
+      handleRouteSearch();
     });
   }
 
@@ -1594,7 +1892,35 @@ function initEventListeners() {
 }
 
 /**
- * Slide Deck Viewer Logic
+ * Handle Start Location Geocode or Route Calculation
+ */
+async function handleRouteSearch() {
+  const startVal = document.getElementById("routeStartInput")?.value.trim();
+
+  if (startVal && !startVal.toLowerCase().includes(APP_STATE.userLocation.name.toLowerCase().split(',')[0])) {
+    showToast(`Analyzing route for "${startVal}"...`);
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(startVal)}&limit=1`, {
+        headers: { 'Accept-Language': 'en' }
+      });
+      const data = await res.json();
+      if (data && data.length > 0) {
+        const lat = parseFloat(data[0].lat);
+        const lng = parseFloat(data[0].lon);
+        const name = data[0].display_name.split(',').slice(0, 2).join(',').trim();
+        updateActiveLocation(lat, lng, name, "search");
+        showToast(`✓ Routes analyzed for ${name}`);
+        return;
+      }
+    } catch (e) {}
+  }
+
+  renderSelectedRoute("safest");
+  showToast("Multi-route comparative analysis completed. Safest Route applied.");
+}
+
+/**
+ * Slide Deck Viewer Logic (Original 10-slide PPT preserved)
  */
 function initSlideDeckHandlers() {
   const deckModal = document.getElementById("deckModal");
